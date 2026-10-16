@@ -1,0 +1,66 @@
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+  bearertokenauth/public_metrics:
+    scheme: Bearer
+    token: ${env:SCRAPE_TOKEN}
+
+receivers:
+  prometheus/railway:
+    config:
+      scrape_configs:
+        - job_name: chronicled_legacy
+          scrape_interval: 30s
+          scrape_timeout: 10s
+          metrics_path: /metrics
+          scheme: http
+
+          dns_sd_configs:
+            - names:
+                - ${env:APP_SERVICE_NAME}.railway.internal
+              type: AAAA
+              port: ${env:APP_INTERNAL_PORT}
+              refresh_interval: 30s
+
+          relabel_configs:
+            - source_labels:
+                - __meta_dns_name
+              target_label: railway_service
+
+            - target_label: railway_environment
+              replacement: ${env:RAILWAY_ENVIRONMENT_NAME}
+
+processors:
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 384
+    spike_limit_mib: 96
+
+  batch:
+    timeout: 5s
+
+exporters:
+  prometheus/public:
+    endpoint: 0.0.0.0:${env:PORT}
+    metric_expiration: 2m
+    send_timestamps: true
+    translation_strategy: NoTranslation
+
+    auth:
+      authenticator: bearertokenauth/public_metrics
+
+service:
+  extensions:
+    - health_check
+    - bearertokenauth/public_metrics
+
+  pipelines:
+    metrics:
+      receivers:
+        - prometheus/railway
+      processors:
+        - memory_limiter
+        - batch
+      exporters:
+        - prometheus/public
